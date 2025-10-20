@@ -6,13 +6,18 @@ import { ErrorReporter } from 'n8n-core';
 import type { Workflow } from 'n8n-workflow';
 import { UnexpectedError } from 'n8n-workflow';
 
+import type {
+	WorkflowClosedMessage,
+	WorkflowOpenedMessage,
+	WriteAccessAcquiredMessage,
+	WriteAccessReleasedMessage,
+} from './collaboration.message';
+import { parseWorkflowMessage } from './collaboration.message';
+
 import { CollaborationState } from '@/collaboration/collaboration.state';
 import { Push } from '@/push';
 import type { OnPushMessage } from '@/push/types';
 import { AccessService } from '@/services/access.service';
-
-import type { WorkflowClosedMessage, WorkflowOpenedMessage } from './collaboration.message';
-import { parseWorkflowMessage } from './collaboration.message';
 
 /**
  * Service for managing collaboration feature between users. E.g. keeping
@@ -53,6 +58,10 @@ export class CollaborationService {
 			await this.handleWorkflowOpened(userId, workflowMessage);
 		} else if (workflowMessage.type === 'workflowClosed') {
 			await this.handleWorkflowClosed(userId, workflowMessage);
+		} else if (workflowMessage.type === 'writeAccessAcquired') {
+			await this.handleWriteAccessAcquired(userId, workflowMessage);
+		} else if (workflowMessage.type === 'writeAccessReleased') {
+			await this.handleWriteAccessReleased(userId, workflowMessage);
 		}
 	}
 
@@ -100,5 +109,69 @@ export class CollaborationService {
 		};
 
 		this.push.sendToUsers({ type: 'collaboratorsChanged', data: msgData }, userIds);
+	}
+
+	private async handleWriteAccessAcquired(userId: User['id'], msg: WriteAccessAcquiredMessage) {
+		const { workflowId, userId: requestedUserId } = msg;
+
+		if (userId !== requestedUserId) {
+			return;
+		}
+
+		if (!(await this.accessService.hasWriteAccess(userId, workflowId))) {
+			return;
+		}
+
+		await this.state.setWriteLock(workflowId, userId);
+
+		await this.sendWriteAccessAcquiredMessage(workflowId, userId);
+	}
+
+	private async handleWriteAccessReleased(userId: User['id'], msg: WriteAccessReleasedMessage) {
+		const { workflowId } = msg;
+
+		if (!(await this.accessService.hasReadAccess(userId, workflowId))) {
+			return;
+		}
+
+		const currentLockHolder = await this.state.getWriteLock(workflowId);
+
+		if (currentLockHolder !== userId) {
+			return;
+		}
+
+		await this.state.releaseWriteLock(workflowId);
+		await this.sendWriteAccessReleasedMessage(workflowId);
+	}
+
+	private async sendWriteAccessAcquiredMessage(workflowId: Workflow['id'], userId: User['id']) {
+		const collaborators = await this.state.getCollaborators(workflowId);
+		const userIds = collaborators.map((user) => user.userId);
+
+		if (userIds.length === 0) {
+			return;
+		}
+
+		const msgData: PushPayload<'writeAccessAcquired'> = {
+			workflowId,
+			userId,
+		};
+
+		this.push.sendToUsers({ type: 'writeAccessAcquired', data: msgData }, userIds);
+	}
+
+	private async sendWriteAccessReleasedMessage(workflowId: Workflow['id']) {
+		const collaborators = await this.state.getCollaborators(workflowId);
+		const userIds = collaborators.map((user) => user.userId);
+
+		if (userIds.length === 0) {
+			return;
+		}
+
+		const msgData: PushPayload<'writeAccessReleased'> = {
+			workflowId,
+		};
+
+		this.push.sendToUsers({ type: 'writeAccessReleased', data: msgData }, userIds);
 	}
 }

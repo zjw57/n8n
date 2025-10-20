@@ -44,13 +44,13 @@ export const usePushConnectionStore = defineStore(STORES.PUSH, () => {
 		};
 	};
 
-	const useWebSockets = settingsStore.pushBackend === 'websocket';
+	const useWebSockets = computed(() => settingsStore.pushBackend === 'websocket');
 
 	const getConnectionUrl = () => {
 		const restUrl = rootStore.restUrl;
 		const url = `/push?pushRef=${rootStore.pushRef}`;
 
-		if (useWebSockets) {
+		if (useWebSockets.value) {
 			const { protocol, host } = window.location;
 			const baseUrl = restUrl.startsWith('http')
 				? restUrl.replace(/^http/, 'ws')
@@ -88,7 +88,7 @@ export const usePushConnectionStore = defineStore(STORES.PUSH, () => {
 
 	const url = getConnectionUrl();
 
-	const client = useWebSockets
+	const client = useWebSockets.value
 		? useWebSocketClient({ url, onMessage })
 		: useEventSourceClient({ url, onMessage });
 

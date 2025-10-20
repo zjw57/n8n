@@ -155,6 +155,7 @@ export const useSettingsStore = defineStore(STORES.SETTINGS, () => {
 
 	const templatesHost = computed(() => settings.value.templates.host);
 
+	// this is where it is undefined
 	const pushBackend = computed(() => settings.value.pushBackend);
 
 	const isCommunityNodesFeatureEnabled = computed(() => settings.value.communityNodesEnabled);

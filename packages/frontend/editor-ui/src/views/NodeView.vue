@@ -139,6 +139,8 @@ import { type ContextMenuAction } from '@/features/ui/contextMenu/composables/us
 import { useExperimentalNdvStore } from '@/features/canvas/experimental/experimentalNdv.store';
 import { useWorkflowState } from '@/composables/useWorkflowState';
 import { useParentFolder } from '@/features/folders/composables/useParentFolder';
+import { useCollaborationStore } from '@/features/collaboration/collaboration.store';
+import { useActivityDetection } from '@/composables/useActivityDetection';
 
 import { N8nCallout, N8nCanvasThinkingPill } from '@n8n/design-system';
 
@@ -200,8 +202,12 @@ const logsStore = useLogsStore();
 const aiTemplatesStarterCollectionStore = useAITemplatesStarterCollectionStore();
 const readyToRunWorkflowsStore = useReadyToRunWorkflowsStore();
 const experimentalNdvStore = useExperimentalNdvStore();
+const collaborationStore = useCollaborationStore();
 
 const workflowState = useWorkflowState();
+
+// Initialize activity detection for collaboration
+useActivityDetection();
 provide(WorkflowStateKey, workflowState);
 
 const { addBeforeUnloadEventBindings, removeBeforeUnloadEventBindings } = useBeforeUnload({
@@ -301,6 +307,7 @@ const isCanvasReadOnly = computed(() => {
 	return (
 		isDemoRoute.value ||
 		isReadOnlyEnvironment.value ||
+		collaborationStore.shouldBeReadOnly ||
 		!(workflowPermissions.value.update ?? projectPermissions.value.workflow.update) ||
 		editableWorkflow.value.isArchived ||
 		builderStore.streaming
@@ -1852,6 +1859,16 @@ watch(
 		}
 	},
 );
+
+// Acquire write access when user makes first edit
+watch(
+	() => uiStore.stateIsDirty,
+	(isDirty) => {
+		if (isDirty && !collaborationStore.isCurrentUserWriter && !collaborationStore.isAnyoneWriting) {
+			collaborationStore.acquireWriteAccess();
+		}
+	},
+);
 onBeforeRouteLeave(async (to, from, next) => {
 	const toNodeViewTab = getNodeViewTab(to);
 
@@ -2089,6 +2106,16 @@ onBeforeUnmount(() => {
 				:class="$style.readOnlyEnvironmentNotification"
 			>
 				{{ i18n.baseText('readOnlyEnv.cantEditOrRun') }}
+			</N8nCallout>
+
+			<N8nCallout
+				v-if="collaborationStore.currentWriter && !collaborationStore.isCurrentUserWriter"
+				theme="info"
+				icon="user"
+				:class="$style.readOnlyEnvironmentNotification"
+			>
+				{{ collaborationStore.currentWriter.user.firstName }}
+				{{ collaborationStore.currentWriter.user.lastName }} is currently editing this workflow
 			</N8nCallout>
 
 			<N8nCanvasThinkingPill
